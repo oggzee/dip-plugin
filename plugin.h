@@ -32,6 +32,8 @@
 #define MODE_CRYPT		0x02
 #define MODE_WBFS		0x04
 #define MODE_FILE		0x08
+#define MODE_FRAG		0x10
+#define MODE_EMUL		( MODE_FILE | MODE_WBFS | MODE_FRAG )
 
 /* Macros */
 #define DI_SetMode(bit)		BIT_SET(config.mode, (bit))

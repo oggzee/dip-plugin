@@ -25,6 +25,8 @@
 #include "plugin.h"
 #include "syscalls.h"
 #include "wbfs.h"
+#include "frag.h"
+#include "string.h"
 
 /* Global config */
 struct dipConfig config = { 0 };
@@ -73,6 +75,12 @@ s32 __DI_ReadUnencrypted(void *outbuf, u32 len, u32 offset)
 
 	/* Update offset */
 	offset += (config.offset[0] + config.offset[1]);
+
+	/* Frag read */
+	if (DI_ChkMode(MODE_FRAG)) {
+		ret = Frag_Read(outbuf, len, offset);
+		return ret;
+	}
 
 	/* File read */
 	if (DI_ChkMode(MODE_FILE))
@@ -151,7 +159,6 @@ void __DI_ResetConfig(void)
 	config.noreset = 0;
 }
 
-
 s32 DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 size)
 {
 	u32 cmd = (inbuf[0] >> 24);
@@ -172,7 +179,7 @@ s32 DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 size)
 			__DI_ResetConfig();
 
 			/* Non-DVD mode */
-			if (DI_ChkMode(MODE_FILE | MODE_WBFS)) {
+			if (DI_ChkMode(MODE_EMUL)) {
 				/* Stop motor */
 				DI_StopMotor();
 
@@ -192,7 +199,7 @@ s32 DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 size)
 		u32 offset = (config.offset[0] | config.offset[1]);
 
 		/* Read disc ID */
-		if (!DI_ChkMode(MODE_FILE | MODE_WBFS)) {
+		if (!DI_ChkMode(MODE_EMUL)) {
 			/* Call command */
 			ret = DI_HandleCmd(inbuf, outbuf, size);
 
@@ -202,7 +209,7 @@ s32 DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 size)
 		}
 
 		/* Manual read */
-		if (DI_ChkMode(MODE_DVDROM | MODE_FILE | MODE_WBFS) || offset)
+		if (DI_ChkMode(MODE_DVDROM | MODE_EMUL) || offset)
 			ret = __DI_ReadDiscId(outbuf, size);
 
 		/* Check disc type */
@@ -257,7 +264,7 @@ s32 DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 size)
 	/** Set drive offset **/
 	case IOCTL_DI_OFFSET: {
 		/* Check modes */
-		res = DI_ChkMode(MODE_DVDROM | MODE_FILE | MODE_WBFS);
+		res = DI_ChkMode(MODE_DVDROM | MODE_EMUL);
 
 		/* Set disc offset */
 		if (res) {
@@ -275,7 +282,7 @@ s32 DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 size)
 	/** Seek disc **/
 	case IOCTL_DI_SEEK: {
 		/* Check modes */
-		res = DI_ChkMode(MODE_DVDROM | MODE_FILE | MODE_WBFS);
+		res = DI_ChkMode(MODE_DVDROM | MODE_EMUL);
 
 		/* Seek disc */
 		if (!res)
@@ -287,7 +294,7 @@ s32 DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 size)
 	/** Audio config **/
 	case IOCTL_DI_AUDIO_CONFIG: {
 		/* Check modes */
-		res = DI_ChkMode(MODE_DVDROM | MODE_FILE | MODE_WBFS);
+		res = DI_ChkMode(MODE_DVDROM | MODE_EMUL);
 
 		/* Set audio config  */
 		if (!res)
@@ -299,7 +306,7 @@ s32 DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 size)
 	/** Report DVD key **/
 	case IOCTL_DI_REPORT_KEY: {
 		/* Check modes */
-		res = DI_ChkMode(MODE_DVDROM | MODE_FILE | MODE_WBFS);
+		res = DI_ChkMode(MODE_DVDROM | MODE_EMUL);
 
 		/* Report DVD key */
 		if (res) {
@@ -317,7 +324,7 @@ s32 DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 size)
 	/** Request cover status **/
 	case IOCTL_DI_REQCOVER: {
 		/* Check modes */
-		res = DI_ChkMode(MODE_FILE | MODE_WBFS);
+		res = DI_ChkMode(MODE_EMUL);
 
 		/* Request cover status */
 		if (res)
@@ -331,7 +338,7 @@ s32 DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 size)
 	/** Request error code **/
 	case IOCTL_DI_REQERROR: {
 		/* Check modes */
-		res = DI_ChkMode(MODE_FILE | MODE_WBFS);
+		res = DI_ChkMode(MODE_EMUL);
 
 		/* Request error code */
 		if (res || config.error)
@@ -448,6 +455,51 @@ s32 DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 size)
 		break;
 	}
 
+	/** Set FRAG mode **/
+	case IOCTL_DI_FRAG_SET: {
+		u32   device   = inbuf[1];
+		void *fraglist = (void*)inbuf[2];
+		int   size     = inbuf[3];
+
+		/* Close frag */
+		Frag_Close();
+
+		/* Disable mode */
+		DI_DelMode(MODE_FRAG);
+
+		/* Check device */
+		if (device && fraglist && size) {
+			/* Convert address */
+			fraglist = VirtToPhys(fraglist);
+
+			/* Open device */
+			ret = Frag_Init(device-1, fraglist, size);
+			*outbuf = ret;
+
+			/* Enable mode */
+			if (ret > 0)
+				DI_SetMode(MODE_FRAG);
+
+			ret = 0;
+		}
+		break;
+	}
+
+	/** Get IO mode **/
+	case IOCTL_DI_MODE_GET: {
+		/* return all mode bits */
+		*outbuf = config.mode;
+		break;
+	}
+
+	/** debug stuff **/
+	case IOCTL_DI_HELLO: {
+		memcpy(outbuf,"HELO",4);
+		outbuf[1] = config.mode;
+		outbuf[2] = config.type;
+		break;
+	}
+
 	/** Disable reset **/
 	case IOCTL_DI_RESET_DISABLE: {
 		u32 value = inbuf[1];
@@ -492,7 +544,7 @@ s32 DI_EmulateIoctl(ioctl *buffer, s32 fd)
 	/** Wait for cover close **/
 	case IOCTL_DI_WAITCVRCLOSE: {
 		/* Check modes */
-		res = DI_ChkMode(MODE_FILE | MODE_WBFS);
+		res = DI_ChkMode(MODE_EMUL);
 
 		/* Wait for cover close */
 		if (!res)
@@ -504,7 +556,7 @@ s32 DI_EmulateIoctl(ioctl *buffer, s32 fd)
 	/** Get cover register **/
 	case IOCTL_DI_COVER_REG: {
 		/* Check modes */
-		res = DI_ChkMode(MODE_FILE | MODE_WBFS);
+		res = DI_ChkMode(MODE_EMUL);
 
 		/* Get cover register */
 		if (res)
@@ -518,7 +570,7 @@ s32 DI_EmulateIoctl(ioctl *buffer, s32 fd)
 	/** Clear cover interrupt **/
 	case IOCTL_DI_COVER_CLEAR: {
 		/* Check modes */
-		res = DI_ChkMode(MODE_FILE | MODE_WBFS);
+		res = DI_ChkMode(MODE_EMUL);
 
 		/* Clear cover interrupt */
 		if (res)
@@ -532,7 +584,7 @@ s32 DI_EmulateIoctl(ioctl *buffer, s32 fd)
 	/** Get cover status **/
 	case IOCTL_DI_COVER_STATUS: {
 		/* Check modes */
-		res = DI_ChkMode(MODE_FILE | MODE_WBFS);
+		res = DI_ChkMode(MODE_EMUL);
 
 		/* Get cover status */
 		if (res)
@@ -546,7 +598,7 @@ s32 DI_EmulateIoctl(ioctl *buffer, s32 fd)
 	/** Get status register **/
 	case IOCTL_DI_STATUS_REG: {
 		/* Check modes */
-		res = DI_ChkMode(MODE_FILE | MODE_WBFS);
+		res = DI_ChkMode(MODE_EMUL);
 
 		/* Get status register */
 		if (res)

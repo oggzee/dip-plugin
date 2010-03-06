@@ -33,7 +33,9 @@ OBJS	=	dip.o			\
 		swi_mload.o		\
 		syscalls.o		\
 		tools.o			\
-		wbfs.o
+		wbfs.o			\
+		usbstorage.o	\
+		frag.o			\
 
 
 $(TARGET).elf: $(OBJS)
@@ -52,3 +54,4 @@ $(TARGET).elf: $(OBJS)
 clean:
 	@echo -e "Cleaning..."
 	@rm -f $(OBJS) $(TARGET).elf $(TARGET).elf.orig $(TARGET).map
+
