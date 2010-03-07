@@ -185,6 +185,8 @@ int usbstorage_Init(void)
 	/* Initialize USB storage */
 	os_ioctlv(fd, USB_IOCTL_UMS_INIT, 0, 0, NULL);
 
+	sectorSz = 0x200; // 512
+
 	return 0;
 #if 0
 	/* Get device capacity */

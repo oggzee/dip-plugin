@@ -35,6 +35,7 @@ OBJS	=	dip.o			\
 		tools.o			\
 		wbfs.o			\
 		usbstorage.o	\
+		sdhc.o			\
 		frag.o			\
 
 

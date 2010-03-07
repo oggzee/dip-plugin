@@ -24,7 +24,12 @@
 #include "dip_calls.h"
 #include "syscalls.h"
 #include "usbstorage.h"
+#include "sdhc.h"
 #include "frag.h"
+
+#define DEV_NONE 0
+#define DEV_USB  1
+#define DEV_SDHC 2
 
 #define MAX_IDX   640 // 640*16MB = 10GB
 #define IDX_CHUNK 32768 // 16MB in sectors units: 16*1024*1024/512
@@ -49,10 +54,15 @@ s32 Frag_Init(u32 device, void *fraglist, int size)
 {
 	static int ret;
 	if (frag_init) Frag_Close();
+	if (!device || device > 2) return -1;
 	if (!size) return -1;
 	if (size > sizeof(FragList)) return -2;
 
-	ret = usbstorage_Init();
+	if (device == DEV_USB) {
+		ret = usbstorage_Init();
+	} else {
+		ret = sdhc_Init();
+	}
    	if (ret) return ret;
 	frag_dev = device;
 	frag_list = &fraglist_data;
@@ -69,7 +79,7 @@ void Frag_Close(void)
 {
 	frag_init = 0;
 	frag_list = 0;
-	frag_dev = -1;
+	frag_dev = 0;
 }
 
 
@@ -175,7 +185,11 @@ int frag_read_sect(u32 offset, u8 *data, u32 len)
             //if (ret) return ret;
 			//bool usbstorage_ReadSectors(u32 sector, u32 numSectors, void *buffer)
             //ret = usbstorage_ReadSectors(sector, count, data);
-            ret = __usbstorage_Read(sector, count, data);
+            if (frag_dev == DEV_USB) {
+                ret = __usbstorage_Read(sector, count, data);
+            } else {
+                ret = sdhc_Read(sector, count, data);
+            }
             if (!ret) return -3;
             offset += count;
             data   += count << 9;

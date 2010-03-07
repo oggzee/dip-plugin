@@ -473,7 +473,7 @@ s32 DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 size)
 			fraglist = VirtToPhys(fraglist);
 
 			/* Open device */
-			ret = Frag_Init(device-1, fraglist, size);
+			ret = Frag_Init(device, fraglist, size);
 			*outbuf = ret;
 
 			/* Enable mode */
